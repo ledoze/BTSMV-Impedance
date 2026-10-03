@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tension, courant et vecteurs de Fresnel</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&display=swap">
+<style>
+:root{--bg:#f5f7fa;--panel:#fff;--ink:#16202e;--mut:#5d6b7e;--grid:#dde3ec;--v:#2f55d4;--i:#d6336c;--line:#c9d2df;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10151d;--panel:#18202c;--ink:#e8edf5;--mut:#93a1b5;--grid:#2a3444;--v:#7d98ff;--i:#ff7fa9;--line:#3a4658}}
+:root[data-theme="dark"]{--bg:#10151d;--panel:#18202c;--ink:#e8edf5;--mut:#93a1b5;--grid:#2a3444;--v:#7d98ff;--i:#ff7fa9;--line:#3a4658}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 "IBM Plex Sans",system-ui,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:16px}
+h1{font-size:1.3rem;margin:4px 0 12px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.tabs button{border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:8px 14px;border-radius:8px;font:inherit;cursor:pointer}
+.tabs button[aria-pressed="true"]{background:var(--v);border-color:var(--v);color:#fff}
+button:focus-visible,input:focus-visible{outline:2px solid var(--i);outline-offset:2px}
+.ctrl{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px 18px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:12px}
+.ctrl label{display:flex;justify-content:space-between;font-size:.9rem;color:var(--mut)}
+.ctrl b{color:var(--ink);font-weight:600}
+.ctrl input[type=range]{width:100%}
+.grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px}
+.card h2{font-size:.95rem;margin:2px 6px 4px;color:var(--mut);font-weight:600}
+canvas{display:block;width:100%}
+#cp{height:340px}#cw{height:340px}#cz{height:240px}
+.full{grid-column:1/-1}
+.read{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin:12px 0}
+.read div{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:.85rem;color:var(--mut)}
+.read strong{display:block;font-size:1.15rem;color:var(--ink)}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.row button{border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:6px 12px;border-radius:8px;font:inherit;cursor:pointer}
+@media(max-width:760px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+<h1>Tension, courant et diagramme de Fresnel</h1>
+<div class="tabs" role="group" aria-label="Composant">
+  <button data-m="R" aria-pressed="true">Résistance</button>
+  <button data-m="L" aria-pressed="false">Bobine</button>
+  <button data-m="C" aria-pressed="false">Condensateur</button>
+</div>
+
+<div class="ctrl">
+  <div><label>Fréquence f <b id="o_f"></b></label><input id="s_f" type="range" min="0" max="1000" value="400"></div>
+  <div><label>Tension max Vm <b id="o_V"></b></label><input id="s_V" type="range" min="1" max="10" step="0.5" value="5"></div>
+  <div id="g_R"><label>Résistance R <b id="o_R"></b></label><input id="s_R" type="range" min="0" max="1000" value="333"></div>
+  <div id="g_L" hidden><label>Inductance L <b id="o_L"></b></label><input id="s_L" type="range" min="0" max="1000" value="500"></div>
+  <div id="g_C" hidden><label>Capacité C <b id="o_C"></b></label><input id="s_C" type="range" min="0" max="1000" value="500"></div>
+  <div class="row"><button id="play">Pause</button><label>Vitesse de rotation <input id="s_sp" type="range" min="0.05" max="1" step="0.05" value="0.2"></label></div>
+</div>
+
+<div class="read">
+  <div>Impédance |Z|<strong id="r_Z"></strong></div>
+  <div>Courant max Im<strong id="r_I"></strong></div>
+  <div>Déphasage φ (i par rapport à v)<strong id="r_P"></strong></div>
+  <div>Période T<strong id="r_T"></strong></div>
+</div>
+
+<div class="grid">
+  <div class="card"><h2>Diagramme de Fresnel (ω = 2πf)</h2><canvas id="cp"></canvas></div>
+  <div class="card"><h2>Signaux sur trois périodes</h2><canvas id="cw"></canvas></div>
+  <div class="card full"><h2>Impédance en fonction de la fréquence (échelle log-log)</h2><canvas id="cz"></canvas></div>
+</div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const S = {mode:'R', f:50, V:5, R:100, L:0.1, C:1e-5, th:0, play:true, speed:0.2};
+const RANGE = {f:[1,1e4], R:[1,1000], L:[1e-3,0.5], C:[1e-7,1e-4]};
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+function fmt(x, u){
+  const a = Math.abs(x), p = [[1e6,'M'],[1e3,'k'],[1,''],[1e-3,'m'],[1e-6,'µ'],[1e-9,'n']];
+  for(const [k,s] of p) if(a >= k*0.9999) return (x/k).toPrecision(3).replace(/\.?0+$/,'') + ' ' + s + u;
+  return x.toPrecision(3) + ' ' + u;
+}
+const nice = x => { const p = Math.pow(10, Math.floor(Math.log10(x))), m = x/p; return (m<=1?1:m<=2?2:m<=5?5:10)*p; };
+const logVal = (k, x) => { const [a,b] = RANGE[k]; return a*Math.pow(b/a, x/1000); };
+
+/* ---------- Calcul des grandeurs ---------- */
+let K = {};
+function calc(){
+  const w = 2*Math.PI*S.f;
+  K.w = w;
+  K.Z = S.mode==='R' ? S.R : S.mode==='L' ? w*S.L : 1/(w*S.C);
+  K.phi = S.mode==='R' ? 0 : S.mode==='L' ? -Math.PI/2 : Math.PI/2;
+  K.I = S.V / K.Z;
+  K.T = 1 / S.f;
+  K.vAx = S.V*1.2;
+  K.iAx = nice(K.I*1.2);
+  $('r_Z').textContent = fmt(K.Z, 'Ω');
+  $('r_I').textContent = fmt(K.I, 'A');
+  $('r_P').textContent = S.mode==='R' ? '0° (en phase)' : S.mode==='L' ? '−90° (i en retard)' : '+90° (i en avance)';
+  $('r_T').textContent = fmt(K.T, 's');
+  $('o_f').textContent = fmt(S.f, 'Hz'); $('o_V').textContent = S.V + ' V';
+  $('o_R').textContent = fmt(S.R, 'Ω'); $('o_L').textContent = fmt(S.L, 'H'); $('o_C').textContent = fmt(S.C, 'F');
+}
+
+/* ---------- Canvas ---------- */
+const cv = {};
+function fit(id){
+  const c = $(id), r = c.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+  c.width = r.width*d; c.height = r.height*d;
+  const g = c.getContext('2d'); g.setTransform(d,0,0,d,0,0);
+  cv[id] = {g, w:r.width, h:r.height};
+}
+function fitAll(){ ['cp','cw','cz'].forEach(fit); }
+addEventListener('resize', fitAll);
+
+function arrow(g, x0, y0, x1, y1, col, lw){
+  g.strokeStyle = g.fillStyle = col; g.lineWidth = lw;
+  g.beginPath(); g.moveTo(x0,y0); g.lineTo(x1,y1); g.stroke();
+  const a = Math.atan2(y1-y0, x1-x0), s = 10;
+  g.beginPath(); g.moveTo(x1,y1);
+  g.lineTo(x1 - s*Math.cos(a-0.4), y1 - s*Math.sin(a-0.4));
+  g.lineTo(x1 - s*Math.cos(a+0.4), y1 - s*Math.sin(a+0.4));
+  g.closePath(); g.fill();
+}
+
+function drawPhasors(){
+  const {g,w,h} = cv.cp, grid = css('--grid'), ink = css('--ink'), mut = css('--mut'), cV = css('--v'), cI = css('--i');
+  g.clearRect(0,0,w,h);
+  const R0 = Math.min(w*0.36, h*0.42), cx = w*0.42, cy = h/2;
+  g.strokeStyle = grid; g.lineWidth = 1;
+  g.beginPath(); g.arc(cx,cy,R0,0,7); g.stroke();
+  g.beginPath(); g.arc(cx,cy,R0/2,0,7); g.stroke();
+  g.beginPath(); g.moveTo(cx-R0-8,cy); g.lineTo(cx+R0+8,cy); g.moveTo(cx,cy-R0-8); g.lineTo(cx,cy+R0+8); g.stroke();
+
+  const lv = S.V/K.vAx*R0, li = K.I/K.iAx*R0;
+  const av = S.th, ai = S.th + K.phi;
+  const gx = cx + R0 + 26;
+  g.strokeStyle = grid; g.beginPath(); g.moveTo(gx,cy-R0); g.lineTo(gx,cy+R0); g.stroke();
+
+  // arc de déphasage
+  if(K.phi !== 0){
+    g.strokeStyle = mut; g.lineWidth = 1.5; g.beginPath();
+    g.arc(cx,cy,R0*0.3, -Math.max(av,ai), -Math.min(av,ai)); g.stroke();
+    g.fillStyle = mut; g.font = '12px "IBM Plex Sans",sans-serif';
+    const am = (av+ai)/2; g.fillText('φ', cx + R0*0.38*Math.cos(am), cy - R0*0.38*Math.sin(am));
+  }
+  [[lv,av,cV,'V'],[li,ai,cI,'I']].forEach(([l,a,col,n])=>{
+    const x = cx + l*Math.cos(a), y = cy - l*Math.sin(a);
+    g.setLineDash([4,4]); g.strokeStyle = col; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(x,y); g.lineTo(gx,y); g.stroke(); g.setLineDash([]);
+    arrow(g, cx, cy, x, y, col, 2.5);
+    g.beginPath(); g.arc(gx,y,4,0,7); g.fill();
+    g.font = '600 13px "IBM Plex Sans",sans-serif'; g.fillText(n, x + 8*Math.cos(a), y - 8*Math.sin(a));
+  });
+  g.fillStyle = mut; g.font = '12px "IBM Plex Sans",sans-serif';
+  g.fillText('Rayon = '+fmt(K.vAx,'V')+' (V)  /  '+fmt(K.iAx,'A')+' (I)', 8, h-8);
+  g.fillText('Projection = valeur instantanée', gx-70, cy-R0-8);
+}
+
+function drawWaves(){
+  const {g,w,h} = cv.cw, grid = css('--grid'), mut = css('--mut'), cV = css('--v'), cI = css('--i');
+  g.clearRect(0,0,w,h);
+  const L = 54, Rm = 54, T = 16, B = 28, pw = w-L-Rm, ph = h-T-B, y0 = T+ph/2, X = 6*Math.PI;
+  const px = x => L + x/X*pw;
+  g.font = '12px "IBM Plex Sans",sans-serif'; g.lineWidth = 1;
+  for(let k=0;k<=3;k++){
+    g.strokeStyle = grid; g.beginPath(); g.moveTo(px(k*2*Math.PI),T); g.lineTo(px(k*2*Math.PI),T+ph); g.stroke();
+    g.fillStyle = mut; g.textAlign='center'; g.fillText(fmt(k*K.T,'s'), px(k*2*Math.PI), h-8);
+  }
+  g.strokeStyle = grid; g.beginPath(); g.moveTo(L,y0); g.lineTo(L+pw,y0); g.stroke();
+  g.textAlign='right'; g.fillStyle = cV; g.fillText(fmt(K.vAx,'V'), L-6, T+10); g.fillText('−'+fmt(K.vAx,'V'), L-6, T+ph);
+  g.textAlign='left'; g.fillStyle = cI; g.fillText(fmt(K.iAx,'A'), L+pw+6, T+10); g.fillText('−'+fmt(K.iAx,'A'), L+pw+6, T+ph);
+  const vf = x => S.V*Math.sin(x)/K.vAx, iF = x => K.I*Math.sin(x+K.phi)/K.iAx;
+  [[vf,cV],[iF,cI]].forEach(([f,col])=>{
+    g.strokeStyle = col; g.lineWidth = 2.5; g.beginPath();
+    for(let n=0;n<=400;n++){ const x = n/400*X, y = y0 - f(x)*ph/2; n?g.lineTo(px(x),y):g.moveTo(px(x),y); }
+    g.stroke();
+  });
+  const xm = 2*Math.PI + (S.th % (2*Math.PI) + 2*Math.PI) % (2*Math.PI);
+  g.strokeStyle = mut; g.setLineDash([3,4]); g.lineWidth = 1;
+  g.beginPath(); g.moveTo(px(xm),T); g.lineTo(px(xm),T+ph); g.stroke(); g.setLineDash([]);
+  [[vf,cV],[iF,cI]].forEach(([f,col])=>{ g.fillStyle = col; g.beginPath(); g.arc(px(xm), y0 - f(xm)*ph/2, 5, 0, 7); g.fill(); });
+  g.textAlign='left'; g.fillStyle = cV; g.fillText('v(t)', L+4, T+ph+0); g.fillStyle = cI; g.fillText('i(t)', L+40, T+ph+0);
+}
+
+function drawZ(){
+  const {g,w,h} = cv.cz, grid = css('--grid'), mut = css('--mut'), cV = css('--v'), cI = css('--i');
+  g.clearRect(0,0,w,h);
+  const L = 56, Rm = 14, T = 12, B = 28, pw = w-L-Rm, ph = h-T-B;
+  const ymin = -2, ymax = 6;
+  const X = f => L + Math.log10(f)/4*pw, Y = z => T + (ymax - Math.log10(z))/(ymax-ymin)*ph;
+  g.font = '12px "IBM Plex Sans",sans-serif'; g.lineWidth = 1; g.fillStyle = mut;
+  for(let d=0; d<=4; d++){ g.strokeStyle = grid; g.beginPath(); g.moveTo(X(10**d),T); g.lineTo(X(10**d),T+ph); g.stroke();
+    g.textAlign='center'; g.fillText(fmt(10**d,'Hz'), X(10**d), h-8); }
+  for(let d=ymin; d<=ymax; d+=2){ g.strokeStyle = grid; g.beginPath(); g.moveTo(L,Y(10**d)); g.lineTo(L+pw,Y(10**d)); g.stroke();
+    g.textAlign='right'; g.fillText(fmt(10**d,'Ω'), L-6, Y(10**d)+4); }
+  const zf = f => S.mode==='R' ? S.R : S.mode==='L' ? 2*Math.PI*f*S.L : 1/(2*Math.PI*f*S.C);
+  g.strokeStyle = cV; g.lineWidth = 2.5; g.beginPath();
+  for(let n=0;n<=300;n++){ const f = 10**(n/300*4), z = Math.min(Math.max(zf(f),1e-2),1e6); n?g.lineTo(X(f),Y(z)):g.moveTo(X(f),Y(z)); }
+  g.stroke();
+  const mx = X(S.f), my = Y(K.Z);
+  g.strokeStyle = cI; g.setLineDash([3,4]); g.lineWidth = 1;
+  g.beginPath(); g.moveTo(mx,T+ph); g.lineTo(mx,my); g.lineTo(L,my); g.stroke(); g.setLineDash([]);
+  g.fillStyle = cI; g.beginPath(); g.arc(mx,my,6,0,7); g.fill();
+  g.textAlign='left'; g.fillStyle = mut;
+  g.fillText(S.mode==='R' ? '|Z| = R (indépendant de f)' : S.mode==='L' ? '|Z| = Lω (croît avec f)' : '|Z| = 1/(Cω) (décroît avec f)', L+8, T+16);
+}
+
+/* ---------- Boucle d'animation ---------- */
+let last = performance.now();
+function loop(t){
+  const dt = Math.min((t-last)/1000, 0.1); last = t;
+  if(S.play) S.th += S.speed*2*Math.PI*dt;
+  drawPhasors(); drawWaves(); drawZ();
+  requestAnimationFrame(loop);
+}
+
+/* ---------- Interface ---------- */
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+  S.mode = b.dataset.m;
+  document.querySelectorAll('.tabs button').forEach(x => x.setAttribute('aria-pressed', x===b));
+  ['R','L','C'].forEach(k => $('g_'+k).hidden = k !== S.mode);
+  calc();
+});
+['f','R','L','C'].forEach(k => { const s = $('s_'+k); s.oninput = () => { S[k] = logVal(k, +s.value); calc(); }; S[k] = logVal(k, +s.value); });
+$('s_V').oninput = e => { S.V = +e.target.value; calc(); };
+$('s_sp').oninput = e => S.speed = +e.target.value;
+$('play').onclick = e => { S.play = !S.play; e.target.textContent = S.play ? 'Pause' : 'Lecture'; };
+
+S.V = +$('s_V').value; S.speed = +$('s_sp').value;
+calc(); fitAll(); requestAnimationFrame(loop);
+</script>
+</body>
+</html>
